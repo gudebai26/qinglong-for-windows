@@ -1,6 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
+	"strconv"
+	"strings"
+)
 
 // notificationEnvKeys maps a saved notification channel field onto the variable
 // name the task-side notifiers read.
@@ -113,6 +117,44 @@ var notificationEnvKeys = map[string]string{
 	"wpushTopicCode": "WPUSH_TOPIC_CODE",
 }
 
+// smtpServiceHosts mirrors nodemailer's well-known service table for the names
+// the settings page offers. The JS notifier accepts SMTP_SERVICE ("QQ") and
+// resolves it itself, but the Python notifier only understands
+// SMTP_SERVER/SMTP_SSL, so the panel has to spell the host out.
+var smtpServiceHosts = map[string]struct {
+	host string
+	port string
+	ssl  bool
+}{
+	"qq":         {"smtp.qq.com", "465", true},
+	"qqex":       {"smtp.exmail.qq.com", "465", true},
+	"exmail":     {"smtp.exmail.qq.com", "465", true},
+	"foxmail":    {"smtp.qq.com", "465", true},
+	"163":        {"smtp.163.com", "465", true},
+	"126":        {"smtp.126.com", "465", true},
+	"yeah":       {"smtp.yeah.net", "465", true},
+	"sina":       {"smtp.sina.com", "465", true},
+	"sohu":       {"smtp.sohu.com", "465", true},
+	"139":        {"smtp.139.com", "465", true},
+	"189":        {"smtp.189.cn", "465", true},
+	"aliyun":     {"smtp.aliyun.com", "465", true},
+	"aliyunqiye": {"smtp.qiye.aliyun.com", "465", true},
+	"gmail":      {"smtp.gmail.com", "465", true},
+	"google":     {"smtp.gmail.com", "465", true},
+	"outlook":    {"smtp.office365.com", "587", false},
+	"outlook365": {"smtp.office365.com", "587", false},
+	"hotmail":    {"smtp-mail.outlook.com", "587", false},
+	"yahoo":      {"smtp.mail.yahoo.com", "465", true},
+	"zoho":       {"smtp.zoho.com", "465", true},
+	"icloud":     {"smtp.mail.me.com", "587", false},
+}
+
+// ChannelName returns the saved channel type ("bark", "webhook", ...), or an
+// empty string when the settings page has never saved one.
+func (s *NotifyService) ChannelName(ctx context.Context) string {
+	return strings.TrimSpace(s.savedConfig(ctx)["type"])
+}
+
 // ScriptEnv renders the saved notification channel as task environment
 // variables, so notify.send() / sendNotify() in a script reaches the channel
 // configured in 设置 → 通知设置 without duplicating it in config.sh.
@@ -132,6 +174,18 @@ func (s *NotifyService) ScriptEnv(ctx context.Context) map[string]string {
 	// knows SMTP_EMAIL_TO, so publishing both keeps old scripts working.
 	if recipient := values["SMTP_EMAIL_TO"]; recipient != "" {
 		values["SMTP_TO"] = recipient
+	}
+	// The Python notifier sends through SMTP_SERVER/SMTP_SSL and ignores the
+	// service name, so derive the host from it. A value that already looks like
+	// a hostname is used as-is.
+	if service := values["SMTP_SERVICE"]; service != "" && values["SMTP_SERVER"] == "" {
+		if strings.Contains(service, ".") {
+			values["SMTP_SERVER"] = service + ":465"
+			values["SMTP_SSL"] = "true"
+		} else if known, ok := smtpServiceHosts[strings.ToLower(strings.TrimSpace(service))]; ok {
+			values["SMTP_SERVER"] = known.host + ":" + known.port
+			values["SMTP_SSL"] = strconv.FormatBool(known.ssl)
+		}
 	}
 	return values
 }

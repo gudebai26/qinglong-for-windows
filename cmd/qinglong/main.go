@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -206,6 +207,22 @@ func run() error {
 	crons.SetNotificationEnv(func() map[string]string {
 		return notify.ScriptEnv(context.Background())
 	})
+	// Print the notification state once at boot: "脚本通知没发出来" is almost
+	// always either an empty settings page or a channel the task cannot see,
+	// and both are invisible until someone reads the log.
+	notifyCtx, notifyCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if channel := notify.ChannelName(notifyCtx); channel == "" {
+		log.Warn("[boot] 未配置通知渠道：脚本 notify.send() 会跳过，请到「设置 → 通知设置」保存并测试")
+	} else {
+		values := notify.ScriptEnv(notifyCtx)
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		log.Info("[boot] 通知渠道已加载", "channel", channel, "脚本可见变量", strings.Join(keys, ","))
+	}
+	notifyCancel()
 	// Login notices go through the same sender the notification page tests, so
 	// the audit row reflects real delivery instead of a hard-coded failure.
 	users.SetNotifier(notify)

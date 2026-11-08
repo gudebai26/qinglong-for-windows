@@ -57,7 +57,7 @@ var generatedFiles = map[string]struct{}{"env.js": {}, "env.py": {}}
 // existing data/ directory; Node ships shell/preload inside the package and
 // overwrites it on upgrade the same way. Bump it whenever a file in Files
 // changes.
-const preloadRevision = "3"
+const preloadRevision = "4"
 
 // revisionFile records the revision last written into a preload directory.
 const revisionFile = ".preload-revision"

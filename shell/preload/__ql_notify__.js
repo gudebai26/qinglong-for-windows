@@ -176,6 +176,41 @@ for (const key in push_config) {
   }
 }
 
+// Channels that actually deliver. When none of them is configured, sendNotify
+// used to return silently, which looks exactly like "the script ran but no
+// notification arrived". Say it out loud instead.
+const notifyProbeKeys = [
+  'BARK_PUSH',
+  'DD_BOT_TOKEN',
+  'FSKEY',
+  'GOBOT_URL',
+  'GOTIFY_URL',
+  'IGOT_PUSH_KEY',
+  'PUSH_KEY',
+  'DEER_KEY',
+  'CHAT_URL',
+  'PUSH_PLUS_TOKEN',
+  'WE_PLUS_BOT_TOKEN',
+  'QMSG_KEY',
+  'QYWX_KEY',
+  'QYWX_AM',
+  'TG_BOT_TOKEN',
+  'AIBOTK_KEY',
+  'SMTP_EMAIL',
+  'PUSHME_KEY',
+  'CHRONOCAT_URL',
+  'WEBHOOK_URL',
+  'NTFY_URL',
+  'WXPUSHER_APP_TOKEN',
+  'WXPUSHER_SPT_LIST',
+  'OPENILINK_APP_TOKEN',
+  'WPUSH_APIKEY',
+];
+
+function notifyConfigured() {
+  return notifyProbeKeys.some((key) => push_config[key]);
+}
+
 const $ = {
   post: (params, callback) => {
     const { url, ...others } = params;
@@ -1859,6 +1894,14 @@ async function sendNotify(text, desp, params = {}) {
       console.info(text + '在 SKIP_PUSH_TITLE 环境变量内，跳过推送');
       return;
     }
+  }
+
+  if (!notifyConfigured()) {
+    console.log(
+      '未配置通知渠道，本条通知已跳过：请在面板「设置 → 通知设置」保存并测试渠道，' +
+        '或在 config.sh / 环境变量里填写 BARK_PUSH、WEBHOOK_URL 等。',
+    );
+    return;
   }
 
   if (![false, 'false'].includes(push_config.HITOKOTO)) {
