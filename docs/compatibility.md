@@ -256,7 +256,7 @@ Content-Type: text/html; charset=utf-8
 - **预加载复用**：`shell/preload` 原样 embed（`sitecustomize.js/py`、`client.*`、`__ql_notify__.*`、`esm-loader.mjs`、`notificationAudit.js`、`env.*`），首启落地到 `<root>/shell/preload`；js/ts/mjs 走 `NODE_OPTIONS=-r <preload>`，py 走 `PYTHONPATH`。同时落地 `back/protos/api.proto`（见 4.7.3）。
 - **日志**：`handle_log_path` 三级优先（`real_log_path` > `log_name` > 由脚本路径推导，含 `_<ID>` 后缀），三态重定向（默认 tee / `no_tee` 只写文件 / `real_time` 只写 stdout 通道 / `/dev/null` 丢弃）；首尾格式逐字符对齐（`## 开始执行... <ts>\n\n`、`\n## 完成 ✅... <ts>  耗时 N 秒　　　　　\n`，失败/停止各一版）。
 - **超时**：`CommandTimeoutTime` 支持 `s/m/h/d`、小数、指数；到期 SIGTERM 进程组 → 0.5s → SIGKILL；退出码 124；非法值打印 `Invalid task timeout: <v>` 并退出 125。
-- **随机延迟**：仅“单参数 + `real_time!=true` + `no_delay!=true` + `RandomDelay>0`”生效；`RandomDelayFileExtensions` / `RandomDelayIgnoredMinutes` 用 `${VAR-default}` 语义（键存在但为空表示“不过滤/不忽略”，只有键缺失才用默认 `js` / `0 30`）。
+- **随机延迟**：仅“单参数 + `real_time!=true` + `no_delay!=true` + `RandomDelay>0`”生效；`RandomDelayFileExtensions` / `RandomDelayIgnoredMinutes` 用 `${VAR-default}` 语义（键存在但为空表示“不过滤/不忽略”，只有键缺失才用默认 `js` / `0 30`）。日志行逐字节等于 `t '任务随机延迟 %s 秒，将于 %s 开始，配置文件参数 RandomDelay 置空可取消延迟\n'`（key 自带换行 + `t` 追加换行，前后各一空行），中英文取自 `shell/lang/{zh,en}.sh`；输出位置在 `task_before` 之后、进程启动之前，与 `otask.sh` 的 `run_normal` 顺序一致。
 - **延迟期间的状态与停止**：任务在触发瞬间就写成 running（pid 为空）+ log_path + last_execution_time，与 Node `handle_task_start` 一致；`Stop` 在延迟期间立即把行置回 idle，runner 的等待是可中断的（100ms 轮询 stopped），不会在几分钟后“诈尸”启动。
 - **钩子**：js/py/ts 由预加载执行 `task_before`；sh 及其他由 runner 用 bash `source task_before.sh` + `eval`，并把钩子进程的 `env -0` 回灌进任务环境（等价于 shell 里同进程 source）；`task_after` 对所有类型都执行（与 `otask.sh` 一致）；无 bash 时跳过并 WARN。
 - **状态**：沿用 M4 状态机（running/pid/log_path → idle/last_execution_time/last_running_time），实例行写 `exit_code`；新增 `CrontabStats` 日聚合（`run_count/success_count/fail_count/total_time/max_time`，对齐 `POST /open/dashboard/record`）。
@@ -275,7 +275,7 @@ Content-Type: text/html; charset=utf-8
 | `task_before` + `task_after`（sh，走 bash） | 一致 |
 | `-m 1` 超时 | 退出码 124，尾注 `## 失败 ❌(退出码 124)` |
 | `-m abc` 非法超时 | 退出码 125，日志含 `Invalid task timeout: abc` |
-| `RandomDelay=2`（定时路径） | 出现“任务随机延迟 N 秒…”且实际等待；手动路径不延迟 |
+| `RandomDelay=2`（定时路径） | 日志前两行逐字节一致（`## 开始执行...` + 空行 + `任务随机延迟 N 秒，将于 <ts> 开始，配置文件参数 RandomDelay 置空可取消延迟` + 空行）且实际等待；手动路径不延迟 |
 | 停止 | `## 已停止 🛑`、实例 `stopped/143`、进程树无残留、任务回 `idle` |
 | 面板 E2E（HTTP 建任务→运行→停止） | 4 类脚本 + 超时 + 非法超时 + 停止共 28 项断言全绿 |
 

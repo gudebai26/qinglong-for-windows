@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"qinglong-go/internal/i18n"
 	"qinglong-go/internal/platform"
 )
 
@@ -31,10 +32,11 @@ func (e *Execution) runBeforeHook() {
 		return
 	}
 	exports := e.runHook(hookSpec{
-		file:    filepath.Join(e.runner.cfg.ConfigPath, "task_before.sh"),
-		body:    e.plan.Env["task_before"],
-		before:  "执行前置命令\n\n",
-		after:   "\n执行前置命令结束\n\n",
+		file: filepath.Join(e.runner.cfg.ConfigPath, "task_before.sh"),
+		body: e.plan.Env["task_before"],
+		// t '执行前置命令\n' and t '\n执行前置命令结束\n' each gain one newline.
+		before:  i18n.T("执行前置命令\n") + "\n",
+		after:   i18n.T("\n执行前置命令结束\n") + "\n",
 		workDir: e.runner.cfg.RootPath,
 	})
 	if len(exports) > 0 {
@@ -49,8 +51,8 @@ func (e *Execution) runAfterHook() {
 	e.runHook(hookSpec{
 		file:    filepath.Join(e.runner.cfg.ConfigPath, "task_after.sh"),
 		body:    e.plan.Env["task_after"],
-		before:  "\n执行后置命令\n\n",
-		after:   "\n执行后置命令结束\n",
+		before:  i18n.T("\n执行后置命令\n") + "\n",
+		after:   i18n.T("\n执行后置命令结束") + "\n",
 		workDir: e.plan.WorkDir,
 	})
 }

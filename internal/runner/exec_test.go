@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -225,6 +226,29 @@ func TestExecRandomDelayApplied(t *testing.T) {
 	// The delay message comes after the header and before the script output.
 	if strings.Index(log, "任务随机延迟") < strings.Index(log, "## 开始执行") {
 		t.Fatalf("delay message is before the header:\n%s", log)
+	}
+}
+
+// The first two log lines must be byte for byte the shell wrapper's output:
+// `t '## 开始执行... %s\n'` followed by `t '任务随机延迟 %s 秒，将于 %s 开始，
+// 配置文件参数 RandomDelay 置空可取消延迟\n'`. This is the only place the panel
+// explains why a task with a long RandomDelay looks idle, so the wording and the
+// blank lines matter.
+func TestExecRandomDelayLogFormat(t *testing.T) {
+	requireProgram(t, "node")
+	r, cfg := newExecRoot(t, map[string]string{
+		"RandomDelay":               "2",
+		"RandomDelayFileExtensions": "",
+		"RandomDelayIgnoredMinutes": "",
+	})
+	writeFile(t, filepath.Join(cfg.ScriptPath, "demo.js"), "console.log('body')\n")
+
+	_, log := runTask(t, r, "task demo.js")
+	pattern := regexp.MustCompile(`^## 开始执行\.\.\. \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n\n` +
+		`任务随机延迟 [12] 秒，将于 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 开始，配置文件参数 RandomDelay 置空可取消延迟\n\n` +
+		`body\n`)
+	if !pattern.MatchString(log) {
+		t.Fatalf("log header does not match the shell wrapper://n%q", log)
 	}
 }
 

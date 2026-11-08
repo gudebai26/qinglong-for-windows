@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"qinglong-go/internal/i18n"
 )
 
 // randomDelay ports random_delay() from shell/otask.sh. It returns the delay to
@@ -53,8 +55,10 @@ func (r *Runner) randomDelay(plan *Plan, now time.Time) (time.Duration, string) 
 
 	seconds := rand.Intn(maxSeconds) + 1
 	startAt := now.Add(time.Duration(seconds) * time.Second)
-	message := "任务随机延迟 " + itoa(seconds) + " 秒，将于 " +
-		startAt.Format("2006-01-02 15:04:05") +
-		" 开始，配置文件参数 RandomDelay 置空可取消延迟\n\n"
+	// Byte for byte the output of `t '任务随机延迟 %s 秒，将于 %s 开始，配置
+	// 文件参数 RandomDelay 置空可取消延迟\n'` in shell/otask.sh: t appends one
+	// more newline to the key's own trailing newline.
+	message := i18n.Tf("任务随机延迟 %s 秒，将于 %s 开始，配置文件参数 RandomDelay 置空可取消延迟\n",
+		seconds, startAt.Format("2006-01-02 15:04:05")) + "\n"
 	return time.Duration(seconds) * time.Second, message
 }

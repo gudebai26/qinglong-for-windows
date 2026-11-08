@@ -267,6 +267,11 @@ func (e *Execution) Start() error {
 		return nil
 	}
 
+	// otask.sh runs task_before before random_delay, so the hook's output (and
+	// any failure it reports) shows up before the delay line. For js/python the
+	// hook is a no-op here: the preload runs it inside the task process.
+	e.runBeforeHook()
+
 	if delay, message := r.randomDelay(e.plan, e.startedAt); delay > 0 {
 		io.WriteString(e.sink, message)
 		r.logger.Info("[task] random delay", "seconds", int(delay.Seconds()), "cron_id", e.plan.Env["ID"])
@@ -277,8 +282,6 @@ func (e *Execution) Start() error {
 			return nil
 		}
 	}
-
-	e.runBeforeHook()
 
 	if err := e.spawn(); err != nil {
 		fmt.Fprintf(e.sink, "%s\n", err)
