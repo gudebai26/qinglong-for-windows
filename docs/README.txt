@@ -113,6 +113,23 @@ A: 说明 node_modules 没解压成功或 Node 找不到它。检查：
    （data\syslog）里会有一条 "node_modules extraction incomplete" 或
    "preload unavailable" 的 WARN，按提示处理即可。
 
+Q: 任务到了时间却没跑，日志里也没有脚本输出？
+A: 先看这个任务的日志开头。如果写着
+
+       ## 开始执行... 2026-11-08 20:50:00
+
+       任务随机延迟 54 秒，将于 2026-11-08 20:50:54 开始，配置文件参数
+       RandomDelay 置空可取消延迟
+
+   那就不是没跑，而是 config.sh 里的 RandomDelay 在起作用：任务触发后会在
+   1 到该秒数之间随机等待，最长可能是几分钟，等完才真正执行脚本。这段文
+   字与 Node 版逐字节一致。等待期间任务列表已显示“运行中”，点“停止”会立
+   刻取消本次等待，不会几分钟后又自己跑起来。
+
+       RandomDelay=""                     取消延迟
+       RandomDelayFileExtensions="js py"  只延迟 js/py，其他文件准点跑
+       RandomDelayIgnoredMinutes="0 30"   整点、半点不延迟
+
 Q: 日志在哪？
 A: 面板日志 data\syslog\（按天一个文件）；任务日志 data\log\<任务名>\。
 
