@@ -1,0 +1,44 @@
+QingLong Panel (青龙面板)
+Copyright (c) whyour
+https://github.com/whyour/qinglong
+
+This product includes software developed at the project above, licensed under
+the Apache License, Version 2.0.
+
+================================================================================
+Modifications
+================================================================================
+
+This repository (qinglong-go) is an unofficial Windows port. It is not
+affiliated with, endorsed by, or supported by the QingLong project or its
+author.
+
+What was changed:
+
+  * The backend was rewritten in Go (originally Node.js/TypeScript under
+    back/, static/build/). The HTTP API, authentication scheme, database
+    schema and task execution semantics were reproduced from the original
+    source so that existing data directories keep working.
+  * The front-end build (web/, generated from the upstream src/) is used
+    unchanged.
+  * The gRPC service definition (back/protos/api.proto), the shell hooks
+    (shell/preload/) and the sample scripts are used unchanged, with small
+    fixes for Windows path handling.
+  * The Node.js runtime, Python and Git for Windows are NOT bundled. Users
+    install them separately.
+
+What was removed:
+
+  * The Node.js server process, its TypeScript sources and the PM2 process
+    manager. The panel is a single executable.
+
+================================================================================
+Third-party components
+================================================================================
+
+The executable embeds a minimal set of npm packages required by the ql API
+(@grpc/grpc-js, @grpc/proto-loader, protobufjs, undici, nodemailer and their
+transitive dependencies). Their licenses are MIT and Apache-2.0; the full texts
+are in node_modules/<package>/LICENSE.
+
+Go module dependencies and their licenses are listed by `go list -m all`.

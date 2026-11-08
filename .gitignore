@@ -1,0 +1,29 @@
+# Build output
+/dist/
+*.exe
+*.zip
+*.7z
+
+# Runtime data written next to the executable
+/data/
+/backups/
+/.node-modules-revision
+/shell/preload/env.sh
+/shell/preload/env.js
+/shell/preload/env.py
+/shell/preload/lang_env.sh
+
+# Local scratch
+/.tmp/
+*.log
+.pack-tmp/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# AI assistant scratch
+.workbuddy-ai/
+.workbuddy/

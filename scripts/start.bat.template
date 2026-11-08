@@ -1,0 +1,50 @@
+@echo off
+rem 青龙面板启动脚本。本文件必须是 GBK 编码 + CRLF 换行：
+rem cmd.exe 按 OEM 代码页读取批处理，UTF-8 中文会把后面的命令截断。
+setlocal
+chcp 936 >nul
+cd /d "%~dp0"
+
+if not exist "qinglong.exe" goto missing
+
+rem 把面板根目录锁定为本目录，保证 data\ 永远落在 exe 旁边，
+rem 无论从哪里（快捷方式、其他工作目录）启动。
+set "QL_DIR=%CD%"
+
+echo.
+echo   青龙面板 2.24.0 - 启动目录 "%CD%"
+echo.
+
+"%~dp0qinglong.exe"
+set "EXITCODE=%ERRORLEVEL%"
+
+if not "%EXITCODE%"=="0" goto failed
+
+echo.
+echo   面板已正常退出。
+echo.
+exit /b 0
+
+:missing
+echo.
+echo   [错误] 没有找到 qinglong.exe。
+echo   请把 qinglong.exe、start.bat、README.txt 放在同一个目录下。
+echo.
+pause
+exit /b 1
+
+:failed
+echo.
+echo   [错误] qinglong.exe 退出码 %EXITCODE%。
+echo.
+echo   日志位置：
+echo     %CD%\data\syslog    面板日志，按天一个文件
+echo     %CD%\data\log       任务日志，每个任务一个目录
+echo.
+echo   常见原因：
+echo     - 5700 端口被占用：netstat -ano ^| findstr :5700
+echo     - data\db\database.sqlite 被另一个青龙进程占用
+echo     - 目录没有写权限，或需要管理员身份运行
+echo.
+pause
+exit /b %EXITCODE%
