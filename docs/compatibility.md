@@ -440,6 +440,23 @@ runner 侧另有两处有意差异（`config.sh` 的保留变量、赋值超集�
   审计表新增 `source=script status=0 notifyType=webhook`。空值规则由
   `TestImportConfigSkipsEmptyValues` 覆盖（继承值保留、空赋值不新建变量）。
 
+**（3.1）面板「通知设置」直接对脚本生效**（有意超集）
+
+- Node：`PUT /api/user/notification` 只写 `Auths.notification`，任务环境里读不到；
+  脚本的 `notify.send()` / `sendNotify()` 走 `process.env`，两套配置互不相通。
+  实测（Node 2.24.0）：保存 webhook 后 `data/config/config.sh` 里的 `WEBHOOK_URL` 仍是空串，
+  `shell/preload/env.sh` 也是空文件。
+- Go：`NotifyService.ScriptEnv()` 把保存的渠道按 `internal/service/notify_env.go` 的映射表
+  展开成 `BARK_PUSH` / `TG_BOT_TOKEN` / `WEBHOOK_*` / `SMTP_*` 等（与
+  `shell/preload/__ql_notify__.js` 的 `push_config` 同名），`runner.applyEnvSource`
+  在每次任务启动时补进环境。
+- 优先级：`config.sh`、环境变量页、继承环境里已有的**非空**值永远优先；`export BARK_PUSH=""`
+  这种空占位视为未设置。
+- 收益：从 Node 迁过来、只在面板里配过通知的用户，脚本通知不再静默失败（这是最常见的“脚本通知没发出来”）。
+- 覆盖：`TestNotifyScriptEnvMapsSavedChannel`（映射、空值丢弃）、
+  `TestNotifyScriptEnvTargetsExistInPreload`（目标变量必须在 preload 的 `push_config` 中存在）、
+  `TestApplyEnvSourcePrecedence`（优先级）。
+
 **（4）启动时重建环境变量三文件**（`initData.ts:226` 的对应实现）
 
 - `EnvService.Bootstrap` 在启动时调用一次 `set_envs`，把 `shell/preload/env.{sh,js,py}`

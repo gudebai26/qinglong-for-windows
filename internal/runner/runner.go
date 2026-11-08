@@ -73,6 +73,13 @@ type Runner struct {
 
 	mu      sync.Mutex
 	running map[int64]*Execution
+
+	// envSource supplies variables owned by the database, such as the
+	// notification channel saved on the settings page. It runs on every task
+	// start, so a settings change applies to the next run without a restart.
+	envSource func() map[string]string
+	// envMu guards envSource against a concurrent SetEnvSource from a reload.
+	envMu sync.RWMutex
 }
 
 // New resolves the interpreters once and prepares the preload directory.

@@ -183,6 +183,13 @@ func (s *CronService) reloadScheduler(ctx context.Context) {
 	}
 }
 
+// SetNotificationEnv publishes the notification channel saved on the settings
+// page as task environment variables, so notify.send() inside a script reaches
+// it without duplicating the keys in config.sh.
+func (s *CronService) SetNotificationEnv(source func() map[string]string) {
+	s.runner.SetEnvSource(source)
+}
+
 // SetSock attaches the websocket hub used by the script debugger.
 func (s *CronService) SetSock(sock *SockService) { s.sock = sock }
 

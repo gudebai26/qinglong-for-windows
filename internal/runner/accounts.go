@@ -53,7 +53,35 @@ func (r *Runner) baseEnv(plan *Plan) *envList {
 		}
 	}
 	r.importConfig(env)
+	r.applyEnvSource(env)
 	return env
+}
+
+// SetEnvSource registers the database-backed variables (the notification
+// channel at the moment). Passing nil disables the lookup.
+func (r *Runner) SetEnvSource(source func() map[string]string) {
+	r.envMu.Lock()
+	r.envSource = source
+	r.envMu.Unlock()
+}
+
+// applyEnvSource fills variables the database owns. An existing non-empty value
+// wins: config.sh and the environment page are explicit operator choices, so
+// the settings page must never override them. An empty placeholder (the
+// `export BARK_PUSH=""` line the sample config ships) counts as unset.
+func (r *Runner) applyEnvSource(env *envList) {
+	r.envMu.RLock()
+	source := r.envSource
+	r.envMu.RUnlock()
+	if source == nil {
+		return
+	}
+	for key, value := range source() {
+		if value == "" || env.Get(key) != "" {
+			continue
+		}
+		env.Set(key, value)
+	}
 }
 
 // protectedTaskEnv lists the variables a config.sh line may not override. The

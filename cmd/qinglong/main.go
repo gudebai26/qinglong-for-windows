@@ -200,6 +200,12 @@ func run() error {
 	scripts.SetSock(sock)
 	envs := service.NewEnvService(cfg, st, log)
 	notify := service.NewNotifyService(cfg, st, log)
+	// Scripts build their notifier table from the environment; publish the
+	// channel saved on the settings page so notify.send() works without the
+	// operator mirroring it into config.sh.
+	crons.SetNotificationEnv(func() map[string]string {
+		return notify.ScriptEnv(context.Background())
+	})
 	// Login notices go through the same sender the notification page tests, so
 	// the audit row reflects real delivery instead of a hard-coded failure.
 	users.SetNotifier(notify)
@@ -305,7 +311,7 @@ func run() error {
 		Dependences:   dependences,
 		Open:          opens,
 		System:        system,
-		Notify:       notify,
+		Notify:        notify,
 		Dashboard:     dashboard,
 		Sock:          sock,
 		Logger:        log,

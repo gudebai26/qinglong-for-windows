@@ -124,6 +124,7 @@ start.bat                    启动脚本（等价于直接双击 exe）
 | **命令行执行不写数据库** | `qinglong-CLI.exe task x.js` 只写日志，与 Node 版不带 `ID=` 时一致 |
 | **`command-stop` 无 pid 返回 400** | Node 返回 200 空转 |
 | **通知渠道无内置测试** | 配置时测试发送成功才落库，与 Node 一致；但失败的渠道不会重试 |
+| **面板「通知设置」对脚本生效** | Node 里两套配置互不相通，脚本只认 `config.sh`/环境变量；这里把保存的渠道按同名变量补进任务环境（`config.sh` 优先），迁移后不必重配一遍 |
 
 完整清单见 [`docs/compatibility.md`](docs/compatibility.md)。
 
