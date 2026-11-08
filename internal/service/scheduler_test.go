@@ -146,7 +146,10 @@ func TestRunScheduledStateMachine(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load row: %v", err)
 		}
-		if row != nil && row.Status.Valid && row.Status.Int64 == CronStatusRunning {
+		// The row is reserved (running, no pid) before the process exists, so
+		// wait for the steady running state that owns a pid.
+		if row != nil && row.Status.Valid && row.Status.Int64 == CronStatusRunning &&
+			row.Pid.Valid && row.Pid.Int64 > 0 {
 			running = row
 			break
 		}

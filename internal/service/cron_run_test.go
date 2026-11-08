@@ -208,3 +208,113 @@ func TestScheduledRandomDelay(t *testing.T) {
 		t.Fatalf("missing delay message:\n%s", log)
 	}
 }
+
+// The random delay can last minutes (RandomDelay=300). Node marks the task
+// running in handle_task_start before sleeping, so the list shows 运行中; the Go
+// panel used to leave the row idle until the process existed, which made a
+// delayed task look like it never ran.
+func TestScheduledDelayMarksTaskRunning(t *testing.T) {
+	requireNode(t)
+	svc, st := newTestCronService(t)
+	svc.cfg.Values = map[string]string{
+		"RandomDelay":               "3",
+		"RandomDelayFileExtensions": "",
+		"RandomDelayIgnoredMinutes": "",
+	}
+	writeScript(t, svc.cfg, "delay_status.js", "console.log('delay status ok')\n")
+	cronID := insertRow(t, st, func(row *store.Crontab) { row.Command = "task delay_status.js" })
+
+	done := make(chan struct{})
+	go func() {
+		svc.RunScheduled(context.Background(), cronID)
+		close(done)
+	}()
+
+	// Poll until the delay has started (the log header appears), then check the
+	// row is already running even though no process exists.
+	deadline := time.Now().Add(5 * time.Second)
+	var running bool
+	for time.Now().Before(deadline) {
+		row, err := st.CrontabByID(context.Background(), cronID)
+		if err != nil {
+			t.Fatalf("load row: %v", err)
+		}
+		if row != nil && row.Status.Valid && row.Status.Int64 == CronStatusRunning && !row.Pid.Valid {
+			running = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !running {
+		t.Fatal("row never switched to running while the random delay was pending")
+	}
+
+	<-done
+	row, err := st.CrontabByID(context.Background(), cronID)
+	if err != nil {
+		t.Fatalf("load row: %v", err)
+	}
+	if !row.Status.Valid || row.Status.Int64 != CronStatusIdle || row.Pid.Valid {
+		t.Fatalf("row not idle after the run: status=%v pid=%v", row.Status, row.Pid)
+	}
+	if log := readLog(t, svc, cronID); !strings.Contains(log, "delay status ok") {
+		t.Fatalf("task did not run:/n%s", log)
+	}
+}
+
+// Stop() during the random delay has no pid to signal; the row must go idle at
+// once and the pending start must not spawn a process.
+func TestStopDuringRandomDelay(t *testing.T) {
+	requireNode(t)
+	svc, st := newTestCronService(t)
+	svc.cfg.Values = map[string]string{
+		"RandomDelay":               "6",
+		"RandomDelayFileExtensions": "",
+		"RandomDelayIgnoredMinutes": "",
+	}
+	writeScript(t, svc.cfg, "delay_stop.js", "console.log('should not run')\n")
+	cronID := insertRow(t, st, func(row *store.Crontab) { row.Command = "task delay_stop.js" })
+
+	done := make(chan struct{})
+	go func() {
+		svc.RunScheduled(context.Background(), cronID)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	waiting := false
+	for time.Now().Before(deadline) {
+		row, err := st.CrontabByID(context.Background(), cronID)
+		if err != nil {
+			t.Fatalf("load row: %v", err)
+		}
+		if row != nil && row.Status.Valid && row.Status.Int64 == CronStatusRunning && !row.Pid.Valid {
+			waiting = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !waiting {
+		t.Fatal("task never reached the random delay")
+	}
+
+	if _, err := svc.Stop(context.Background(), []int64{cronID}); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	row, err := st.CrontabByID(context.Background(), cronID)
+	if err != nil {
+		t.Fatalf("load row: %v", err)
+	}
+	if !row.Status.Valid || row.Status.Int64 != CronStatusIdle {
+		t.Fatalf("row not idle right after stop: %v", row.Status)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("run did not return after the delay")
+	}
+	if log := readLog(t, svc, cronID); strings.Contains(log, "should not run") {
+		t.Fatalf("task ran anyway://n%s", log)
+	}
+}

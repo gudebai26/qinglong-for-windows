@@ -136,6 +136,9 @@ type CronService struct {
 	// trigger that arrives during that window must skip a single-instance task
 	// exactly as it would skip a live pid.
 	starting sync.Map
+	// stopEarly records a Stop() that arrives while the task is still in its
+	// random delay, when there is no pid to signal yet.
+	stopEarly sync.Map
 	// runner executes tasks (M5).
 	runner *runner.Runner
 	// sock pushes debug-script output to the browser (M8).

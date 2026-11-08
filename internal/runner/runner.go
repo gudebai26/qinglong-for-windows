@@ -225,6 +225,13 @@ func (r *Runner) Prepare(req Request) (*Execution, error) {
 	if execution.sink == nil {
 		execution.sink = io.Discard
 	}
+	// Register before Start: the random delay can last minutes, and Stop() must
+	// be able to interrupt it instead of waiting for the sleep to end.
+	if id := numericID(plan.Env["ID"]); id > 0 {
+		r.mu.Lock()
+		r.running[id] = execution
+		r.mu.Unlock()
+	}
 	return execution, nil
 }
 
@@ -263,7 +270,12 @@ func (e *Execution) Start() error {
 	if delay, message := r.randomDelay(e.plan, e.startedAt); delay > 0 {
 		io.WriteString(e.sink, message)
 		r.logger.Info("[task] random delay", "seconds", int(delay.Seconds()), "cron_id", e.plan.Env["ID"])
-		time.Sleep(delay)
+		if !e.waitDelay(delay) {
+			// Stop() arrived while the delay was pending: end the run without
+			// spawning, so a stopped task cannot start minutes later. Wait sees
+			// the stop flag and writes the 已停止 footer with exit code 143.
+			return nil
+		}
 	}
 
 	e.runBeforeHook()
@@ -285,6 +297,27 @@ func (e *Execution) Start() error {
 		}
 	}
 	return nil
+}
+
+// waitDelay sleeps for the random delay, polling the stop flag so Stop() takes
+// effect at once instead of after the sleep. It reports whether the delay
+// completed; false means the task was stopped while waiting.
+func (e *Execution) waitDelay(delay time.Duration) bool {
+	deadline := time.Now().Add(delay)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return !e.stopped.Load()
+		}
+		step := 100 * time.Millisecond
+		if remaining < step {
+			step = remaining
+		}
+		time.Sleep(step)
+		if e.stopped.Load() {
+			return false
+		}
+	}
 }
 
 // spawn starts the process(es) for the plan.

@@ -211,11 +211,40 @@ func (s *CronService) runScheduled(ctx context.Context, cronID int64) error {
 	defer s.endStart(cronID)
 
 	startedAt := time.Now()
-	execution, err := s.startTask(row, logPath, logFile, false)
+	// Node marks the task running in handle_task_start, before the random delay
+	// sleeps. The delay can last minutes (RandomDelay=300), and without this the
+	// list would show 空闲 the whole time, which looks like the task never ran.
+	// It also keeps claimRunning below from losing the row to a competing start.
+	reserved, err := s.markRunningEarly(cronID, logPath, startedAt.Unix())
 	if err != nil {
 		return err
 	}
+	if !reserved {
+		return nil
+	}
+
+	execution, err := s.startTask(row, logPath, logFile, false)
+	if err != nil {
+		s.clearEarlyRun(cronID)
+		return err
+	}
 	pid := int64(execution.Pid())
+	if _, requested := s.stopEarly.LoadAndDelete(cronID); requested {
+		// Stop() arrived while the random delay was still sleeping.
+		execution.Abort()
+		s.clearEarlyRun(cronID)
+		result := s.waitTask(execution)
+		s.recordStat(cronID, result.ExitCode, int64(time.Since(startedAt).Seconds()))
+		return nil
+	}
+	if pid <= 0 {
+		// The command never produced a process (bad interpreter, invalid
+		// timeout). The log explains why; just put the row back.
+		s.clearEarlyRun(cronID)
+		result := s.waitTask(execution)
+		s.recordStat(cronID, result.ExitCode, int64(time.Since(startedAt).Seconds()))
+		return nil
+	}
 	s.trackRunning(pid)
 	defer s.untrackRunning(pid)
 
@@ -312,9 +341,10 @@ func (s *CronService) claimRunning(cronID, pid int64, logPath string, startedAt 
 		`UPDATE Crontabs
 		 SET status = ?, pid = ?, log_path = ?, last_execution_time = ?, updatedAt = ?
 		 WHERE id = ? AND (isDisabled IS NULL OR isDisabled = 0)
-		   AND (allow_multiple_instances <> 0 OR status IS NULL OR status IN (?, ?))`,
+		   AND (allow_multiple_instances <> 0 OR status IS NULL
+		        OR status IN (?, ?) OR (status = ? AND pid IS NULL))`,
 		CronStatusRunning, pid, logPath, startedAt, store.SequelizeTime(time.Now()),
-		cronID, CronStatusIdle, CronStatusDisabled)
+		cronID, CronStatusIdle, CronStatusDisabled, CronStatusRunning)
 	if err != nil {
 		return false, err
 	}
@@ -594,8 +624,21 @@ func (s *CronService) Stop(ctx context.Context, ids []int64) (*Reply, error) {
 			instancesByCron[doc.ID] = append(instancesByCron[doc.ID], instance)
 			targets[instance.Pid.Int64] = target{cronID: doc.ID, pid: instance.Pid.Int64}
 		}
-		if doc.Status.Valid && doc.Status.Int64 == CronStatusRunning && doc.Pid.Valid && doc.Pid.Int64 > 0 {
-			targets[doc.Pid.Int64] = target{cronID: doc.ID, pid: doc.Pid.Int64}
+		if doc.Status.Valid && doc.Status.Int64 == CronStatusRunning {
+			if doc.Pid.Valid && doc.Pid.Int64 > 0 {
+				targets[doc.Pid.Int64] = target{cronID: doc.ID, pid: doc.Pid.Int64}
+			} else {
+				// The random delay has not spawned a process yet: no pid to
+				// signal. Mark the row idle right away so the list reacts, and
+				// remember the request so the pending Start aborts on wake.
+				s.stopEarly.Store(doc.ID, struct{}{})
+				if _, err := s.store.DB().ExecContext(ctx,
+					`UPDATE Crontabs SET status = ?, pid = NULL, updatedAt = ?
+					 WHERE id = ? AND status = ? AND pid IS NULL`,
+					CronStatusIdle, store.SequelizeTime(time.Now()), doc.ID, CronStatusRunning); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 
@@ -690,4 +733,33 @@ func (s *CronService) StopInstance(ctx context.Context, instanceID int64) (*Repl
 		}
 	}
 	return &Reply{Code: 200, Message: "实例已停止"}, nil
+}
+
+// markRunningEarly flips the row to running before the process exists, so the
+// task list shows 运行中 while the random delay runs (Node's handle_task_start
+// does the same). A row that already owns a live pid is left untouched: for
+// allow_multiple_instances tasks a sibling may be running.
+func (s *CronService) markRunningEarly(cronID int64, logPath string, startedAt int64) (bool, error) {
+	res, err := s.store.DB().ExecContext(context.Background(),
+		`UPDATE Crontabs SET status = ?, log_path = ?, last_execution_time = ?, updatedAt = ?
+		 WHERE id = ? AND (isDisabled IS NULL OR isDisabled = 0)
+		   AND (allow_multiple_instances <> 0 OR status IS NULL
+		        OR status IN (?, ?) OR (status = ? AND pid IS NULL))`,
+		CronStatusRunning, logPath, startedAt, store.SequelizeTime(time.Now()),
+		cronID, CronStatusIdle, CronStatusDisabled, CronStatusRunning)
+	if err != nil {
+		return false, err
+	}
+	affected, _ := res.RowsAffected()
+	return affected == 1, nil
+}
+
+// clearEarlyRun puts back a row that was reserved but never spawned.
+func (s *CronService) clearEarlyRun(cronID int64) {
+	if _, err := s.store.DB().ExecContext(context.Background(),
+		`UPDATE Crontabs SET status = ?, pid = NULL, updatedAt = ?
+		 WHERE id = ? AND status = ? AND pid IS NULL`,
+		CronStatusIdle, store.SequelizeTime(time.Now()), cronID, CronStatusRunning); err != nil {
+		s.logger.Error("[schedule] clear early run", "cron_id", cronID, "error", err)
+	}
 }

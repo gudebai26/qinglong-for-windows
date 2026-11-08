@@ -256,7 +256,8 @@ Content-Type: text/html; charset=utf-8
 - **预加载复用**：`shell/preload` 原样 embed（`sitecustomize.js/py`、`client.*`、`__ql_notify__.*`、`esm-loader.mjs`、`notificationAudit.js`、`env.*`），首启落地到 `<root>/shell/preload`；js/ts/mjs 走 `NODE_OPTIONS=-r <preload>`，py 走 `PYTHONPATH`。同时落地 `back/protos/api.proto`（见 4.7.3）。
 - **日志**：`handle_log_path` 三级优先（`real_log_path` > `log_name` > 由脚本路径推导，含 `_<ID>` 后缀），三态重定向（默认 tee / `no_tee` 只写文件 / `real_time` 只写 stdout 通道 / `/dev/null` 丢弃）；首尾格式逐字符对齐（`## 开始执行... <ts>\n\n`、`\n## 完成 ✅... <ts>  耗时 N 秒　　　　　\n`，失败/停止各一版）。
 - **超时**：`CommandTimeoutTime` 支持 `s/m/h/d`、小数、指数；到期 SIGTERM 进程组 → 0.5s → SIGKILL；退出码 124；非法值打印 `Invalid task timeout: <v>` 并退出 125。
-- **随机延迟**：仅“单参数 + `real_time!=true` + `no_delay!=true` + `RandomDelay>0`”生效；按 `RandomDelayFileExtensions`（默认 `js`）与 `RandomDelayIgnoredMinutes`（默认 `0 30`）跳过。
+- **随机延迟**：仅“单参数 + `real_time!=true` + `no_delay!=true` + `RandomDelay>0`”生效；`RandomDelayFileExtensions` / `RandomDelayIgnoredMinutes` 用 `${VAR-default}` 语义（键存在但为空表示“不过滤/不忽略”，只有键缺失才用默认 `js` / `0 30`）。
+- **延迟期间的状态与停止**：任务在触发瞬间就写成 running（pid 为空）+ log_path + last_execution_time，与 Node `handle_task_start` 一致；`Stop` 在延迟期间立即把行置回 idle，runner 的等待是可中断的（100ms 轮询 stopped），不会在几分钟后“诈尸”启动。
 - **钩子**：js/py/ts 由预加载执行 `task_before`；sh 及其他由 runner 用 bash `source task_before.sh` + `eval`，并把钩子进程的 `env -0` 回灌进任务环境（等价于 shell 里同进程 source）；`task_after` 对所有类型都执行（与 `otask.sh` 一致）；无 bash 时跳过并 WARN。
 - **状态**：沿用 M4 状态机（running/pid/log_path → idle/last_execution_time/last_running_time），实例行写 `exit_code`；新增 `CrontabStats` 日聚合（`run_count/success_count/fail_count/total_time/max_time`，对齐 `POST /open/dashboard/record`）。
 - **停止**：`runner.Stop(id)` 标记 stopped → SIGTERM 进程组 → 硬杀兜底；尾注 `## 已停止 🛑`，退出码 143，实例状态 `stopped`（不是 `error`）。
@@ -302,7 +303,7 @@ Go 侧测试：`internal/runner`（解析/超时/日志路径/延迟规则/环�
 | 2 | `.go` 脚本 | 不支持（按 `run_else` 直接执行文件） | `go run <file>` | 计划文档要求 `.go→go` |
 | 3 | `-l` | 解析后无实际作用 | 解析后仅 debug 日志记录路径 | 与 Node 行为一致 |
 | 4 | `conc/desi` 账号变量为空 | 静默跑 0 个子进程 | 日志提示“环境变量 X 没有可运行的账号”后退出 0 | 只在配置错误时可见 |
-| 5 | 随机延迟期间的状态 | 外壳进程已存在，DB 显示 running | 延迟结束才 spawn，DB 短暂仍是 idle | 用 `starting` 占位保证单实例不被并发触发绕过 |
+| 5 | 随机延迟期间的状态 | `handle_task_start` 先写 running/pid/log_path，再 sleep | 同样先置 running（pid 为 NULL）、写好 log_path 与 last_execution_time，延迟结束再补 pid | 延迟可达数分钟，若仍显示 idle 会被误判为“任务没跑”；`Stop` 在延迟期间也会立即生效 |
 | 6 | Python 预加载探测失败 | Windows 上 `PYTHONPATH` 用 `:` 拼接，预加载从未被 import | 用 `;` 正确注入；平台跑不起来时（如缺 `/tmp`）跳过并 WARN | 任务日志因此比 Node 多一条 WARN 之外的差异为零 |
 | 7 | `ql` API 调用 | 走 gRPC:5500 | 预加载可加载，但 Go 侧未实现 gRPC 服务，调用会连接失败 | 与 M4“不启 gRPC”一致，M8/后续按需补 HTTP 桥 |
 
