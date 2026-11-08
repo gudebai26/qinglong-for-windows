@@ -97,7 +97,8 @@ def token() -> str:
 
 
 def api(method: str, url: str, token_value: str, payload: dict | None = None,
-        raw: bytes | None = None, content_type: str = "application/json") -> dict:
+        raw: bytes | None = None, content_type: str = "application/json",
+        timeout: int = 60) -> dict:
     data = raw if raw is not None else (
         json.dumps(payload).encode("utf-8") if payload is not None else None
     )
@@ -110,7 +111,7 @@ def api(method: str, url: str, token_value: str, payload: dict | None = None,
         request.add_header("Content-Type", content_type)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with opener.open(request, timeout=180) as response:
+        with opener.open(request, timeout=timeout) as response:
             body = response.read()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as error:
@@ -249,8 +250,29 @@ def main() -> int:
     else:
         body = release_notes(tag, previous, version, archive.name)
 
+    release = ensure_release(owner, repo, token_value, tag, body)
+    asset = upload_asset(owner, repo, token_value, release, archive)
+    say(f"published {release['html_url']}")
+    say(f"asset    {asset.get('browser_download_url', archive.name)}")
+    return 0
+
+
+def ensure_release(owner: str, repo: str, token_value: str, tag: str, body: str) -> dict:
+    """Create the release, or reuse the one a previous run left behind.
+
+    An upload can fail halfway (a 23 MB asset over a slow link), leaving an
+    empty release. Re-running the script must resume instead of dying on 422.
+    """
+    base = f"https://api.github.com/repos/{owner}/{repo}/releases"
+    try:
+        release = api("GET", f"{base}/tags/{urllib.parse.quote(tag)}", token_value)
+        say(f"reusing release {tag} ({len(release.get('assets') or [])} asset(s))")
+        return release
+    except SystemExit as error:
+        if "-> 404" not in str(error):
+            raise
     say(f"creating release {tag} on {owner}/{repo} ...")
-    release = api("POST", f"https://api.github.com/repos/{owner}/{repo}/releases", token_value, {
+    return api("POST", base, token_value, {
         "tag_name": tag,
         "name": tag,
         "body": body,
@@ -258,14 +280,36 @@ def main() -> int:
         "prerelease": False,
     })
 
-    say(f"uploading {archive.name} ...")
-    upload_url = (f"https://uploads.github.com/repos/{owner}/{repo}/releases/"
-                  f"{release['id']}/assets?name={urllib.parse.quote(archive.name)}")
-    asset = api("POST", upload_url, token_value, raw=archive.read_bytes(),
-                content_type="application/zip")
-    say(f"published {release['html_url']}")
-    say(f"asset    {asset.get('browser_download_url', archive.name)}")
-    return 0
+
+def upload_asset(owner: str, repo: str, token_value: str, release: dict, archive: Path) -> dict:
+    """Upload the archive, retrying the slow ones.
+
+    GitHub keeps an unfinished asset row when the connection drops, so a retry
+    first clears the stale entry with the same name.
+    """
+    url = (f"https://uploads.github.com/repos/{owner}/{repo}/releases/"
+           f"{release['id']}/assets?name={urllib.parse.quote(archive.name)}")
+    data = archive.read_bytes()
+    last: Exception | None = None
+    for attempt in range(1, 4):
+        existing = [a for a in (release.get("assets") or []) if a["name"] == archive.name]
+        for asset in existing:
+            if asset.get("size") == archive.stat().st_size and asset.get("state") == "uploaded":
+                say(f"asset {archive.name} already uploaded")
+                return asset
+            say(f"clearing stale asset {archive.name} ({asset.get('state')})")
+            api("DELETE", f"https://api.github.com/repos/{owner}/{repo}/releases/assets/{asset['id']}",
+                token_value)
+        say(f"uploading {archive.name} ({len(data) / 1024 / 1024:.1f} MB, attempt {attempt}/3) ...")
+        try:
+            return api("POST", url, token_value, raw=data, content_type="application/zip",
+                       timeout=900)
+        except Exception as error:  # URLError, timeout, HTTPError
+            last = error
+            say(f"upload failed: {error}")
+            release = api("GET", f"https://api.github.com/repos/{owner}/{repo}/releases/tags/"
+                         f"{urllib.parse.quote(release['tag_name'])}", token_value)
+    raise SystemExit(f"upload failed after 3 attempts: {last}")
 
 
 if __name__ == "__main__":
