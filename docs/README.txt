@@ -3,9 +3,9 @@
 
 本目录只有三个文件，面板、前端、任务运行时全部在 qinglong.exe 里：
 
-    qinglong.exe    面板本体（含 React 前端、ql API 所需 node_modules）
-    start.bat       启动脚本（GBK 编码，双击即可）
-    README.txt      本文件
+    qinglong.exe      面板本体（含 React 前端、ql API 所需 node_modules）
+    qinglong-CLI.exe  命令行入口（task / list / doctor / version）
+    start.bat         启动脚本（GBK 编码，双击即可）
 
 
 一、安装
@@ -134,7 +134,8 @@ Q: 日志在哪？
 A: 面板日志 data\syslog\（按天一个文件）；任务日志 data\log\<任务名>\。
 
 Q: 怎么升级？
-A: 停面板 → 备份 data 目录 → 用新的 qinglong.exe 覆盖旧文件 → 启动。
+A: 停面板 → 备份 data 目录 → 用新的 qinglong.exe、qinglong-CLI.exe 覆盖旧文件
+   → 启动。
    data 目录保持不动，schema 和数据都会自动沿用。
 
 Q: 怎么回退到 Node 版？

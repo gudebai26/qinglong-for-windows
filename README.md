@@ -341,6 +341,18 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o qinglong.exe ./cmd/qinglong
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o qinglong-CLI.exe ./cmd/qinglong-cli
 ```
 
+### 打包与发布
+
+```bash
+python scripts/release.py            # 构建两个 exe + 打包 + 发 GitHub Release
+python scripts/release.py --dry-run  # 只构建和打包，不发布
+```
+
+包内固定三个文件：`qinglong.exe`、`qinglong-CLI.exe`、`start.bat`（`README.txt`
+仅供本地查看，不随包发布）。版本号取 `version.yaml`，构建号在已发布的最新
+`v<版本>-go.<n>` 上自增；token 复用 `git push` 已登录的凭据（也认 `GITHUB_TOKEN`）。
+发布前要求工作区干净且已推送，否则脚本拒绝执行（可加 `--allow-dirty` 跳过）。
+
 ### 重新生成 gRPC 代码
 
 ```bash

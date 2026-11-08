@@ -4,9 +4,13 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Dist release
 #
 # Output (default dist\):
-#   qinglong.exe   panel + React build + vendored node_modules, no runtime deps
-#   start.bat      launcher (GBK, CRLF)
-#   README.txt     install / migrate / FAQ
+#   qinglong.exe       panel + React build + vendored node_modules, no runtime deps
+#   qinglong-CLI.exe   terminal entry point (task runner, list, doctor, version)
+#   start.bat          launcher (GBK, CRLF)
+#   README.txt         install / migrate / FAQ (documentation, not shipped in the zip)
+#
+# The release archive contains only the two executables and start.bat; see
+# scripts/release.py.
 #
 # node_modules must exist in the repository: it is compiled into the executable
 # and extracted to <QL_DIR>\node_modules on first boot (missing files only, an
@@ -27,6 +31,7 @@ Push-Location $root
 try {
     $distDir = Join-Path $root $Dist
     $exe = Join-Path $distDir "qinglong.exe"
+    $cli = Join-Path $distDir "qinglong-CLI.exe"
 
     # --- preflight ---------------------------------------------------------
     if (-not (Test-Path (Join-Path $root "node_modules"))) {
@@ -97,6 +102,12 @@ try {
     $item = Get-Item $exe
     Write-Host ("built {0} ({1:N1} MB)" -f $item.FullName, ($item.Length / 1MB))
 
+    Write-Host "go build -trimpath -ldflags ""-s -w"" -o $cli ./cmd/qinglong-cli"
+    go build -trimpath -ldflags "-s -w" -o $cli ./cmd/qinglong-cli
+    if ($LASTEXITCODE -ne 0) { throw "go build (cli) failed with exit code $LASTEXITCODE" }
+    $cliItem = Get-Item $cli
+    Write-Host ("built {0} ({1:N1} MB)" -f $cliItem.FullName, ($cliItem.Length / 1MB))
+
     # --- stage -------------------------------------------------------------
     # start.bat is written as GBK with CRLF: cmd.exe reads batch files with the
     # OEM code page and drops any command that follows a UTF-8 Chinese string.
@@ -115,7 +126,7 @@ try {
         Write-Warning "docs\README.txt is missing, the release has no readme"
     }
 
-    foreach ($name in @("start.bat", "README.txt")) {
+    foreach ($name in @("qinglong.exe", "qinglong-CLI.exe", "start.bat", "README.txt")) {
         $path = Join-Path $distDir $name
         if (Test-Path $path) {
             Write-Host ("staged {0} ({1} bytes)" -f $name, (Get-Item $path).Length)
