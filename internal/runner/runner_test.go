@@ -322,6 +322,60 @@ func TestRandomDelayRules(t *testing.T) {
 	}
 }
 
+// TestRandomDelayEmptyExtensionMeansNoFilter pins Node's ${VAR-default}
+// semantics: the shipped config.sh defines RandomDelayFileExtensions as an
+// empty string, and that must disable the filter instead of restoring "js".
+// Before the fix a .py task never slept even with RandomDelay set.
+func TestRandomDelayEmptyExtensionMeansNoFilter(t *testing.T) {
+	cfg := testConfig(t, t.TempDir(), map[string]string{
+		"RandomDelay":               "5",
+		"RandomDelayFileExtensions": "",
+		"RandomDelayIgnoredMinutes": "",
+	})
+	r := New(cfg, nil)
+	now := time.Date(2026, 11, 7, 14, 10, 0, 0, time.Local)
+
+	for _, file := range []string{"a.py", "a.sh", "a.js"} {
+		plan := &Plan{FileParam: file, ArgsAll: []string{file}, Env: map[string]string{}}
+		if delay, message := r.randomDelay(plan, now); delay <= 0 || message == "" {
+			t.Fatalf("%s: empty extension filter should still delay, got %v %q", file, delay, message)
+		}
+	}
+
+	// An ignored minute of 0 must not be assumed when the key is empty.
+	if delay, _ := r.randomDelay(
+		&Plan{FileParam: "a.py", ArgsAll: []string{"a.py"}, Env: map[string]string{}},
+		time.Date(2026, 11, 7, 14, 0, 0, 0, time.Local),
+	); delay <= 0 {
+		t.Fatalf("empty ignored-minutes should delay at minute 0, got %v", delay)
+	}
+}
+
+// TestRandomDelayMissingKeysUseDefaults covers a config.sh that never mentions
+// the two keys: only then do Node's built-in defaults ("js", "0 30") apply.
+func TestRandomDelayMissingKeysUseDefaults(t *testing.T) {
+	cfg := testConfig(t, t.TempDir(), map[string]string{"RandomDelay": "5"})
+	r := New(cfg, nil)
+	now := time.Date(2026, 11, 7, 14, 10, 0, 0, time.Local)
+
+	if delay, _ := r.randomDelay(
+		&Plan{FileParam: "a.js", ArgsAll: []string{"a.js"}, Env: map[string]string{}}, now,
+	); delay <= 0 {
+		t.Fatal("missing keys should fall back to the js filter")
+	}
+	if delay, _ := r.randomDelay(
+		&Plan{FileParam: "a.py", ArgsAll: []string{"a.py"}, Env: map[string]string{}}, now,
+	); delay != 0 {
+		t.Fatalf("missing keys should keep the js-only filter, got %v", delay)
+	}
+	if delay, _ := r.randomDelay(
+		&Plan{FileParam: "a.js", ArgsAll: []string{"a.js"}, Env: map[string]string{}},
+		time.Date(2026, 11, 7, 14, 30, 0, 0, time.Local),
+	); delay != 0 {
+		t.Fatalf("missing keys should fall back to ignoring minutes 0 and 30, got %v", delay)
+	}
+}
+
 func TestBuildEnv(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(t, root, nil)

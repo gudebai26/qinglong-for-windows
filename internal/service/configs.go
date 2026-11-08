@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -104,6 +105,15 @@ func (s *SystemService) SaveConfig(ctx context.Context, name, content string) (*
 	}
 	if err := writeFileWithLock(resolved, content); err != nil {
 		return nil, err
+	}
+	// config.sh feeds RandomDelay, CommandTimeoutTime and the other task
+	// settings. Node picks edits up on the next run because task.sh sources the
+	// file; the panel caches the values in memory, so refresh them here or the
+	// change would only apply after a restart.
+	if s.cfg != nil && resolved == filepath.Join(s.cfg.ConfigPath, "config.sh") {
+		if err := s.cfg.Reload(); err != nil {
+			s.logger.Warn("[config] reload config.sh failed", "error", err)
+		}
 	}
 	return &Reply{Code: 200, Message: i18n.T("保存成功")}, nil
 }

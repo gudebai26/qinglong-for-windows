@@ -789,9 +789,15 @@ func (s *UserService) notifyLogin(
 		s.notifier.Notify(ctx, NotificationRequest{Title: title, Content: content})
 		return
 	}
-	// No notifier attached (tests): still record the attempt so the log never
-	// silently loses it.
-	s.persistNotifyLog(ctx, title, content, "", loginStatusFail)
+	// No notifier attached (tests): still record the attempt, with the channel
+	// type the user configured, so the log never silently loses it.
+	notifyType := ""
+	if config, err := s.Notification(ctx); err == nil {
+		if value, ok := config["type"].(string); ok {
+			notifyType = value
+		}
+	}
+	s.persistNotifyLog(ctx, title, content, notifyType, loginStatusFail)
 }
 
 func (s *UserService) persistNotifyLog(ctx context.Context, title, content, notifyType string, status int) {

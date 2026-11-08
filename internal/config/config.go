@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -91,7 +93,18 @@ type Config struct {
 	// Values holds every assignment parsed from config.sh, with environment
 	// variables applied on top. Later milestones read domain specific keys
 	// (CommandTimeoutTime, RandomDelay, ...) from here.
+	//
+	// Node re-sources config.sh on every task, so editing the file takes effect
+	// without a restart. The panel keeps the map in memory instead, which is why
+	// Reload exists: without it a saved RandomDelay would only apply after the
+	// next start. Guarded by mu.
 	Values map[string]string
+
+	mu sync.RWMutex
+	// modTime/size identify the config.sh revision Values was parsed from, so
+	// ReloadIfChanged can skip unchanged files.
+	modTime time.Time
+	size    int64
 }
 
 // APIWhiteList mirrors config.apiWhiteList: exact paths that never require a
@@ -210,8 +223,101 @@ func Load() (*Config, error) {
 	cfg.JWTSecret = firstNonEmpty(cfg.Env("JWT_SECRET"), "whyour-secret")
 	cfg.JWTExpiresIn = strings.TrimSpace(cfg.Env("JWT_EXPIRES_IN"))
 	cfg.DeployEnv = cfg.Env("DeployEnv")
+	cfg.stamp()
 
 	return cfg, nil
+}
+
+// confFile is data/config/config.sh.
+func (c *Config) confFile() string {
+	return filepath.Join(c.DataPath, "config", "config.sh")
+}
+
+// stamp records the revision of config.sh the current Values came from.
+func (c *Config) stamp() {
+	info, err := os.Stat(c.confFile())
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	c.modTime = info.ModTime()
+	c.size = info.Size()
+	c.mu.Unlock()
+}
+
+// Reload re-parses config.sh and replaces Values in place. The panel calls it
+// after saving the file and before each task starts, which is what Node gets
+// for free by sourcing config.sh in task.sh.
+//
+// Only Values is refreshed. Settings that shaped the process at boot (port,
+// bind host, data directory, log level) still need a restart - the listener and
+// loggers are already running.
+func (c *Config) Reload() error {
+	if c == nil {
+		return nil
+	}
+	info, err := os.Stat(c.confFile())
+	if errors.Is(err, os.ErrNotExist) {
+		// A missing file means "all defaults", not "keep the old settings".
+		// Node behaves the same way: sourcing nothing leaves the variables
+		// unset, so the defaults apply.
+		c.mu.Lock()
+		c.Values = map[string]string{}
+		c.modTime, c.size = time.Time{}, 0
+		c.mu.Unlock()
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	content, err := os.ReadFile(c.confFile())
+	if err != nil {
+		return err
+	}
+	values := ParseConfigSh(string(content))
+	for key := range values {
+		if value, ok := os.LookupEnv(key); ok {
+			values[key] = value
+		}
+	}
+	// An empty parse while we had values is almost always a truncated read (the
+	// file is written with a plain WriteFile, not a rename). Keep the previous
+	// settings rather than silently dropping every option.
+	c.mu.RLock()
+	previous := len(c.Values)
+	c.mu.RUnlock()
+	if len(values) == 0 && previous > 0 {
+		return fmt.Errorf("parse %s: no assignments found, keeping previous values", c.confFile())
+	}
+
+	c.mu.Lock()
+	c.Values = values
+	c.modTime, c.size = info.ModTime(), info.Size()
+	c.mu.Unlock()
+	return nil
+}
+
+// ReloadIfChanged re-parses config.sh only when its mtime or size moved since
+// the last load. A task start costs one stat call, so hand edits (SSH, the file
+// manager, qinglong-CLI) take effect without restarting the panel.
+func (c *Config) ReloadIfChanged() error {
+	if c == nil {
+		return nil
+	}
+	info, err := os.Stat(c.confFile())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	c.mu.RLock()
+	unchanged := info.ModTime().Equal(c.modTime) && info.Size() == c.size
+	c.mu.RUnlock()
+	if unchanged {
+		return nil
+	}
+	return c.Reload()
 }
 
 // Env resolves a key with Node's precedence: real environment first, then the
@@ -226,6 +332,8 @@ func (c *Config) Env(key string) string {
 	if value, ok := c.DotEnv[key]; ok {
 		return value
 	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Values[key]
 }
 
@@ -283,10 +391,35 @@ func (c *Config) Get(key string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}
-	if c == nil || c.Values == nil {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.Values == nil {
 		return ""
 	}
 	return c.Values[key]
+}
+
+// GetIfSet returns the config.sh value when the key is present, even when it is
+// empty, and falls back only when the key is missing. Node's shell code uses
+// ${VAR-default} (not ${VAR:-default}), which draws the same distinction: an
+// empty RandomDelayFileExtensions disables the extension filter instead of
+// restoring the built-in "js".
+func (c *Config) GetIfSet(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	if c == nil {
+		return fallback
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if value, ok := c.Values[key]; ok {
+		return value
+	}
+	return fallback
 }
 
 // DependenceProxyFile is data/config/dependence-proxy.sh. When it exists the

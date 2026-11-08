@@ -257,11 +257,13 @@ func (s *DependenceService) installCommandArgs(depType int64, name string) ([]st
 	case DepTypeNodejs:
 		pnpm := s.tools.Path("pnpm")
 		if pnpm == "" {
-			return nil, errors.New("未检测到 pnpm")
+			// ensureNodeTooling installs pnpm before this runs, so a bare name is
+			// only a fallback for callers that build the command for display.
+			pnpm = "pnpm"
 		}
 		return []string{pnpm, "add", "-g", name}, nil
 	case DepTypeLinux:
-		return nil, errors.New("当前系统不支持 linux 依赖")
+		return append(strings.Fields(s.linuxCommands().install), name), nil
 	default:
 		return nil, errors.New("unsupported dependency type")
 	}
@@ -302,7 +304,7 @@ func (s *DependenceService) uninstallCommandArgs(depType int64, name string) ([]
 		}
 		return []string{pnpm, "remove", "-g", name}, nil
 	case DepTypeLinux:
-		return nil, errors.New("当前系统不支持 linux 依赖")
+		return append(strings.Fields(s.linuxCommands().uninstall), name), nil
 	default:
 		return nil, errors.New("unsupported dependency type")
 	}

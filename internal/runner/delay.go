@@ -25,7 +25,11 @@ func (r *Runner) randomDelay(plan *Plan, now time.Time) (time.Duration, string) 
 		return 0, ""
 	}
 
-	extensions := r.cfg.GetDefault("RandomDelayFileExtensions", "js")
+	// GetIfSet, not GetDefault: Node writes ${RandomDelayFileExtensions-"js"},
+	// so an empty value means "no filter" and only a missing key falls back to
+	// js. The shipped config.sh always defines the key (empty), which is why a
+	// .py task used to skip the delay even with RandomDelay set.
+	extensions := r.cfg.GetIfSet("RandomDelayFileExtensions", "js")
 	if extensions != "" {
 		matched := false
 		for _, ext := range strings.Fields(extensions) {
@@ -39,7 +43,7 @@ func (r *Runner) randomDelay(plan *Plan, now time.Time) (time.Duration, string) 
 		}
 	}
 
-	ignored := r.cfg.GetDefault("RandomDelayIgnoredMinutes", "0 30")
+	ignored := r.cfg.GetIfSet("RandomDelayIgnoredMinutes", "0 30")
 	minute := now.Minute()
 	for _, item := range strings.Fields(ignored) {
 		if parsed, err := strconv.Atoi(item); err == nil && parsed == minute {

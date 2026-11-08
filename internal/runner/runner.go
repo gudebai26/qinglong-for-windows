@@ -202,6 +202,13 @@ func (e *Execution) Plan() *Plan { return e.plan }
 // reported by Start and Wait as a failed task, exactly like the shell wrapper,
 // so the panel still records a log and an exit code.
 func (r *Runner) Prepare(req Request) (*Execution, error) {
+	// Node sources config.sh on every run, so RandomDelay / CommandTimeoutTime
+	// edits apply to the next task without a restart. Mirror that here: one stat
+	// call, and a re-parse only when the file actually changed.
+	if err := r.cfg.ReloadIfChanged(); err != nil {
+		r.logger.Warn("[task] reload config.sh failed, using cached values", "error", err)
+	}
+
 	plan, err := r.ParseCommand(req.Command)
 	if err != nil {
 		return nil, err

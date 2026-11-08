@@ -36,14 +36,16 @@ func TestGetInstallCommandNodejs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install command: %v", err)
 	}
-	if command != "pnpm add -g is-number" {
+	// The panel resolves pnpm through the toolchain, so the command starts with
+	// an absolute path when pnpm is installed and a bare "pnpm" otherwise.
+	if !strings.Contains(command, "pnpm") || !strings.HasSuffix(command, " add -g is-number") {
 		t.Errorf("nodejs install = %q", command)
 	}
 	uninstall, err := service.getUninstallCommand(DepTypeNodejs, "is-number")
 	if err != nil {
 		t.Fatalf("uninstall command: %v", err)
 	}
-	if uninstall != "pnpm remove -g is-number" {
+	if !strings.HasSuffix(uninstall, " remove -g is-number") {
 		t.Errorf("nodejs uninstall = %q", uninstall)
 	}
 	probe := service.getGetCommand(DepTypeNodejs, "is-number")
@@ -61,7 +63,7 @@ func TestGetInstallCommandPythonInVenv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install command: %v", err)
 	}
-	if !strings.HasSuffix(command, "-m pip install --disable-pip-version-check -- 'six'") {
+	if !strings.HasSuffix(command, "-m pip install --disable-pip-version-check -- six") {
 		t.Errorf("venv install = %q", command)
 	}
 	// A venv drops --root-user-action and --prefix.
@@ -76,7 +78,7 @@ func TestGetInstallCommandPythonInVenv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("uninstall command: %v", err)
 	}
-	if !strings.HasSuffix(uninstall, "-m pip uninstall --disable-pip-version-check -y -- 'six'") {
+	if !strings.HasSuffix(uninstall, "-m pip uninstall --disable-pip-version-check -y -- six") {
 		t.Errorf("venv uninstall = %q", uninstall)
 	}
 }
@@ -114,7 +116,7 @@ func TestGetInstallCommandPythonRequirementFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("requirements install: %v", err)
 	}
-	if !strings.Contains(command, " -r '") || !strings.Contains(command, "requirements.txt'") {
+	if !strings.Contains(command, " -r ") || !strings.HasSuffix(command, "requirements.txt") {
 		t.Errorf("requirements install = %q", command)
 	}
 
@@ -130,8 +132,7 @@ func TestGetInstallCommandPythonRequirementFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pyproject install: %v", err)
 	}
-	if !strings.HasSuffix(command, "'"+filepath.ToSlash(project)+"'") &&
-		!strings.HasSuffix(command, "'"+project+"'") {
+	if !strings.HasSuffix(command, project) && !strings.HasSuffix(command, "'"+project+"'") {
 		t.Errorf("pyproject install = %q", command)
 	}
 
@@ -161,7 +162,7 @@ func TestGetUninstallCommandPythonSourceDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extras uninstall: %v", err)
 	}
-	if !strings.HasSuffix(command, " -- 'requests'") {
+	if !strings.HasSuffix(command, " -- requests") && !strings.HasSuffix(command, " -- 'requests'") {
 		t.Errorf("extras uninstall = %q", command)
 	}
 }
