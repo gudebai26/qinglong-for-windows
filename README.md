@@ -2,6 +2,8 @@
 
 **非官方项目**，与青龙官方无关，不代表原作者立场。
 
+**[⬇ 下载最新版](https://github.com/gudebai26/qinglong-for-windows/releases/latest)** · 22 MB，解压即用
+
 免安装。面板本体是单个 56 MB 的 exe——前端、ql API 运行时全部内嵌，不需要安装 Node.js 就能启动；已有的青龙 `data/` 目录可以直接接管，任务、日志、环境变量、订阅全部沿用。
 
 另附一个可选的命令行工具（4 MB），不开浏览器时跑脚本用：
