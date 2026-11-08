@@ -350,9 +350,11 @@ python scripts/release.py --dry-run  # 只构建和打包，不发布
 ```
 
 包内固定三个文件：`qinglong.exe`、`qinglong-CLI.exe`、`start.bat`（`README.txt`
-仅供本地查看，不随包发布）。版本号取 `version.yaml`，构建号在已发布的最新
-`v<版本>-go.<n>` 上自增；token 复用 `git push` 已登录的凭据（也认 `GITHUB_TOKEN`）。
-发布前要求工作区干净且已推送，否则脚本拒绝执行（可加 `--allow-dirty` 跳过）。
+仅供本地查看，不随包发布），压缩包名固定为 `qinglong-<版本>-win64.zip`，下载链接
+不随发版变化。版本号取 `version.yaml`，构建号在已发布的最新 `v<版本>-go.<n>` 上自增；
+Release notes 只列三类内容：新增、修复、改动（取自提交标题的 `feat:` / `fix:` 等前缀）。
+token 复用 `git push` 已登录的凭据（也认 `GITHUB_TOKEN`）；发布前要求工作区干净且
+已推送，否则脚本拒绝执行（可加 `--allow-dirty` 跳过）。
 
 ### 重新生成 gRPC 代码
 

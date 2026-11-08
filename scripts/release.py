@@ -151,9 +151,11 @@ def build(skip: bool) -> None:
             raise SystemExit(f"dist\\{name} is missing after the build")
 
 
-def make_zip(tag: str, version: str) -> Path:
-    number = tag.rsplit(".", 1)[-1]
-    target = ROOT / f"qinglong-{version}-win64-go.{number}.zip"
+def make_zip(version: str) -> Path:
+    # One name for every build, on purpose: the release tag already carries the
+    # build number, and a stable file name keeps download links and mirror
+    # scripts from breaking on each release.
+    target = ROOT / f"qinglong-{version}-win64.zip"
     if target.exists():
         target.unlink()
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -167,42 +169,63 @@ def make_zip(tag: str, version: str) -> Path:
     return target
 
 
-def release_notes(tag: str, previous: str | None, version: str, zip_name: str) -> str:
+# Commit prefixes are turned into the three buckets an operator cares about.
+NOTE_GROUPS = {
+    "feat": ("新增", 0),
+    "fix": ("修复", 1),
+    "perf": ("优化", 2),
+    "refactor": ("改动", 2),
+    "build": ("改动", 2),
+    "docs": ("改动", 2),
+    "test": ("改动", 2),
+    "chore": ("改动", 2),
+}
+NOTE_ORDER = ("新增", "修复", "优化", "改动")
+
+
+def release_notes(previous: str | None) -> str:
+    """Render the release body: what was added, fixed or changed. Nothing else.
+
+    The tag carries the build number and the asset name is fixed, so the body
+    does not repeat the version, the file list or upgrade steps.
+    """
     if previous:
-        run(["git", "fetch", "--tags", "--quiet", "origin"], capture=True)
         try:
-            history = run(["git", "log", "--no-merges", "--pretty=- %s",
+            run(["git", "fetch", "--tags", "--quiet", "origin"], capture=True)
+        except SystemExit:
+            # Offline or blocked: fall back to the local tag, if any.
+            pass
+        try:
+            history = run(["git", "log", "--no-merges", "--pretty=%s",
                            f"{previous}..HEAD"], capture=True)
         except SystemExit:
             history = ""
-        heading = f"自 {previous} 起的变更"
     else:
-        history = run(["git", "log", "--no-merges", "--pretty=- %s", "-12"], capture=True)
-        heading = "变更"
-    if not history:
-        history = "- 维护版本，无功能变更"
+        history = run(["git", "log", "--no-merges", "--pretty=%s", "-12"], capture=True)
 
-    return f"""Windows 免安装版（Go 重写），解压即用，无需 Node 运行时。
+    buckets: dict[str, list[str]] = {}
+    for line in history.splitlines():
+        subject = line.strip()
+        if not subject:
+            continue
+        prefix, _, rest = subject.partition(":")
+        group = NOTE_GROUPS.get(prefix.strip().lower())
+        if group and rest.strip():
+            label, _ = group
+            buckets.setdefault(label, []).append(rest.strip())
+        else:
+            buckets.setdefault("改动", []).append(subject)
 
-### {heading}
+    if not buckets:
+        buckets["改动"] = ["维护版本，无功能变化"]
 
-{history}
-
-### 文件
-
-| 文件 | 说明 |
-| --- | --- |
-| `qinglong.exe` | 面板本体（React 前端 + ql API 所需 node_modules 全部内嵌） |
-| `qinglong-CLI.exe` | 命令行入口：`task` / `list` / `doctor` / `version` |
-| `start.bat` | 启动脚本（GBK + CRLF，双击运行） |
-
-### 升级
-
-停面板 → 用包内两个 exe 覆盖旧文件 → 重新启动。`data\\` 目录保持不动，
-数据库与任务配置全部沿用；从 Node 版迁移见仓库 `docs/MIGRATION.md`。
-
-下载：`{zip_name}`
-"""
+    blocks = []
+    for label in NOTE_ORDER:
+        items = buckets.get(label)
+        if not items:
+            continue
+        blocks.append("### " + label + "\n\n" + "\n".join("- " + item for item in items))
+    return "\n\n".join(blocks) + "\n"
 
 
 def main() -> int:
@@ -222,7 +245,7 @@ def main() -> int:
 
     if args.dry_run:
         tag = args.tag or f"v{version}-go.0"
-        archive = make_zip(tag, version)
+        archive = make_zip(version)
         say(f"dry run: would publish {tag} with {archive.name}")
         return 0
 
@@ -243,12 +266,12 @@ def main() -> int:
     else:
         tag, previous = next_tag(owner, repo, token_value, version)
 
-    archive = make_zip(tag, version)
+    archive = make_zip(version)
 
     if args.notes:
         body = Path(args.notes).read_text(encoding="utf-8")
     else:
-        body = release_notes(tag, previous, version, archive.name)
+        body = release_notes(previous)
 
     release = ensure_release(owner, repo, token_value, tag, body)
     asset = upload_asset(owner, repo, token_value, release, archive)
